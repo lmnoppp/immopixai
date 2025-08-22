@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ImageKitService } from '@/lib/imagekit';
 
+// Force Node.js runtime
+export const runtime = 'nodejs';
+
 export async function POST(request: NextRequest) {
   // Validation des dépendances critiques (variables d'environnement ImageKit)
   if (

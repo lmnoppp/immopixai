@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 
 // Forcer le rendu dynamique pour cette route
 export const dynamic = 'force-dynamic';
+// Force Node.js runtime
+export const runtime = 'nodejs';
 
 export async function GET() {
   const robotsTxt = `User-agent: *

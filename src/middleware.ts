@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { DatabaseService } from '@/lib/supabase';
 
+// Force Node.js runtime pour éviter les problèmes Edge Runtime avec Supabase
+export const runtime = 'nodejs';
+
 export async function middleware(request: NextRequest) {
   // Routes protégées
   const protectedRoutes = ['/dashboard', '/api/process-image', '/api/user-data', '/api/logout', '/api/analyze-image', '/api/upload-image'];

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import { DatabaseService } from '@/lib/supabase';
 
+// Force Node.js runtime pour Supabase et OpenAI
+export const runtime = 'nodejs';
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
