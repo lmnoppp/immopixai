@@ -23,9 +23,10 @@
 ### Variables Requises
 ```env
 # Supabase
-SUPABASE_URL=https://tkioemqyfoqseacryiiu.supabase.co
-SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_URL=https://votre-projet.supabase.co
+SUPABASE_SERVICE_ROLE=sb_secret_votre_service_role_key
+NEXT_PUBLIC_SUPABASE_URL=https://votre-projet.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_votre_anon_key
 
 # APIs Externes
 REPLICATE_API_TOKEN=your_replicate_token
