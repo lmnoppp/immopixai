@@ -28,3 +28,12 @@ desktop.ini
 
 # --- Tests ---
 coverage/
+# Archives & gros fichiers
+*.zip
+*.7z
+*.rar
+*.tar
+*.gz
+
+# Fichiers de build TypeScript
+*.tsbuildinfo
