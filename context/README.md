@@ -209,3 +209,4 @@ ImmoPix AI est une application web de traitement d'images immobilières utilisan
 - **Suppression du curseur clignotant** : Interface plus propre
 - **Suppression du bouton Accueil** : Interface épurée
 - **Icône de crédits mise à jour** : Pièce au lieu du portefeuille
+chore: test push
