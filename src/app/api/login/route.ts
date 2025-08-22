@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { DatabaseService } from '@/lib/supabase';
 
+// Force Node.js runtime pour Supabase
+export const runtime = 'nodejs';
+
 // Fonction pour générer un UUID côté serveur
 function generateUUID(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {

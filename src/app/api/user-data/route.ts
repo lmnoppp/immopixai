@@ -3,6 +3,8 @@ import { DatabaseService } from '@/lib/supabase';
 
 // Forcer le rendu dynamique pour cette route
 export const dynamic = 'force-dynamic';
+// Force Node.js runtime pour Supabase
+export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {

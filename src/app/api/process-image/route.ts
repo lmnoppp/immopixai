@@ -5,6 +5,7 @@ import { DatabaseService } from '@/lib/supabase';
 
 // Force le runtime Node.js et désactive le cache. Essentiel pour les libs utilisées.
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,

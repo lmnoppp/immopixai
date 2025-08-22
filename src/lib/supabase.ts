@@ -1,5 +1,5 @@
 import 'server-only';
-import { supabaseAdmin } from './supabase-admin';
+import { getSupabaseAdmin } from './supabase-admin';
 
 
 export interface User {
@@ -33,7 +33,7 @@ export class DatabaseService {
       console.log('🔍 Vérification blacklist:', { email, ipAddress });
       
       // Vérifier par email
-      const { data: emailCheck, error: emailError } = await supabaseAdmin
+      const { data: emailCheck, error: emailError } = await getSupabaseAdmin()
         .from('blacklist')
         .select('*')
         .eq('email', email)
@@ -49,7 +49,7 @@ export class DatabaseService {
       }
 
       // Vérifier par IP
-      const { data: ipCheck, error: ipError } = await supabaseAdmin
+      const { data: ipCheck, error: ipError } = await getSupabaseAdmin()
         .from('blacklist')
         .select('*')
         .eq('ip_address', ipAddress)
@@ -85,7 +85,7 @@ export class DatabaseService {
       }
 
       // Insérer dans la blacklist
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .from('blacklist')
         .insert([{
           email,
@@ -111,7 +111,7 @@ export class DatabaseService {
       console.log('🔄 Blacklistage automatique utilisateur de test:', userId);
       
       // Récupérer les données utilisateur
-      const { data: user, error } = await supabaseAdmin
+      const { data: user, error } = await getSupabaseAdmin()
         .from('usersmvp')
         .select('*')
         .eq('id', userId)
@@ -140,7 +140,7 @@ export class DatabaseService {
       console.log('👤 Création/mise à jour utilisateur:', { email: userData.email, code: userData.code });
       
       // Vérifier si l'utilisateur existe déjà avec ce code
-      const { data: existingUser, error: checkError } = await supabaseAdmin
+      const { data: existingUser, error: checkError } = await getSupabaseAdmin()
         .from('usersmvp')
         .select('*')
         .eq('email', userData.email)
@@ -157,7 +157,7 @@ export class DatabaseService {
         console.log('💰 Crédits existants:', existingUser.credits);
         
         // Si l'utilisateur existe avec ce code, le mettre à jour MAIS conserver les crédits existants
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await getSupabaseAdmin()
           .from('usersmvp')
           .update({
             // Ne pas remettre les crédits, conserver ceux existants
@@ -179,7 +179,7 @@ export class DatabaseService {
       } else {
         console.log('🆕 Création nouvel utilisateur...');
         // Créer un nouvel utilisateur avec les crédits du code
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await getSupabaseAdmin()
           .from('usersmvp')
           .insert([userData])
           .select()
@@ -202,7 +202,7 @@ export class DatabaseService {
   static async getUserByToken(token: string): Promise<User | null> {
     try {
       console.log('🔍 Récupération utilisateur par token:', token);
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getSupabaseAdmin()
         .from('usersmvp')
         .select('*')
         .eq('session_token', token)
@@ -226,7 +226,7 @@ export class DatabaseService {
     try {
       console.log('🔍 Récupération email/credits pour:', userId);
       
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getSupabaseAdmin()
         .from('usersmvp')
         .select('email, credits')
         .eq('id', userId)
@@ -250,7 +250,7 @@ export class DatabaseService {
     try {
       console.log('🔍 Récupération données complètes pour:', userId);
       
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await getSupabaseAdmin()
         .from('usersmvp')
         .select('email, credits, plan')
         .eq('id', userId)
@@ -273,7 +273,7 @@ export class DatabaseService {
   static async updateCredits(userId: string, credits: number): Promise<void> {
     try {
       console.log('💰 Mise à jour crédits:', { userId, credits });
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .from('usersmvp')
         .update({ credits, last_activity: new Date().toISOString() })
         .eq('id', userId);
@@ -292,7 +292,7 @@ export class DatabaseService {
   // Mettre à jour la dernière activité d'un utilisateur
   static async updateLastActivity(userId: string): Promise<void> {
     try {
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .from('usersmvp')
         .update({ last_activity: new Date().toISOString() })
         .eq('id', userId);
@@ -340,7 +340,7 @@ export class DatabaseService {
   static async invalidateSession(token: string): Promise<void> {
     try {
       console.log('🔓 Invalidation session:', token);
-      const { error } = await supabaseAdmin
+      const { error } = await getSupabaseAdmin()
         .from('usersmvp')
         .update({ session_token: null })
         .eq('session_token', token);
