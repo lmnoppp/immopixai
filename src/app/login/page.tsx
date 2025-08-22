@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, AlertCircle, Mail, Key } from 'lucide-react';
-import { DatabaseService } from '@/lib/supabase';
+// DatabaseService n'est plus importé côté client
 import { TextLogo } from '@/components/Logo';
 import Button from '@/components/Button';
 import GlassCard from '@/components/GlassCard';

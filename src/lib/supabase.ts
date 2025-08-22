@@ -1,12 +1,6 @@
 import 'server-only';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from './supabase-admin';
 
-// Configuration Supabase (clés hardcodées)
-const supabaseUrl = 'https://tkioemqyfoqseacryiiu.supabase.co';
-// Utilisation de la clé service_role pour plus de permissions
-const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRraW9lbXF5Zm9xc2VhY3J5aWl1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1MjAwOTczOSwiZXhwIjoyMDY3NTg1NzM5fQ.MQ2ykSYtXZvPAgxQ7n5wN4p7qI0duCBhh89U5jBLSzM';
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export interface User {
   id: string;
@@ -39,7 +33,7 @@ export class DatabaseService {
       console.log('🔍 Vérification blacklist:', { email, ipAddress });
       
       // Vérifier par email
-      const { data: emailCheck, error: emailError } = await supabase
+      const { data: emailCheck, error: emailError } = await supabaseAdmin
         .from('blacklist')
         .select('*')
         .eq('email', email)
@@ -55,7 +49,7 @@ export class DatabaseService {
       }
 
       // Vérifier par IP
-      const { data: ipCheck, error: ipError } = await supabase
+      const { data: ipCheck, error: ipError } = await supabaseAdmin
         .from('blacklist')
         .select('*')
         .eq('ip_address', ipAddress)
@@ -91,7 +85,7 @@ export class DatabaseService {
       }
 
       // Insérer dans la blacklist
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('blacklist')
         .insert([{
           email,
@@ -117,7 +111,7 @@ export class DatabaseService {
       console.log('🔄 Blacklistage automatique utilisateur de test:', userId);
       
       // Récupérer les données utilisateur
-      const { data: user, error } = await supabase
+      const { data: user, error } = await supabaseAdmin
         .from('usersmvp')
         .select('*')
         .eq('id', userId)
@@ -146,7 +140,7 @@ export class DatabaseService {
       console.log('👤 Création/mise à jour utilisateur:', { email: userData.email, code: userData.code });
       
       // Vérifier si l'utilisateur existe déjà avec ce code
-      const { data: existingUser, error: checkError } = await supabase
+      const { data: existingUser, error: checkError } = await supabaseAdmin
         .from('usersmvp')
         .select('*')
         .eq('email', userData.email)
@@ -163,7 +157,7 @@ export class DatabaseService {
         console.log('💰 Crédits existants:', existingUser.credits);
         
         // Si l'utilisateur existe avec ce code, le mettre à jour MAIS conserver les crédits existants
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
           .from('usersmvp')
           .update({
             // Ne pas remettre les crédits, conserver ceux existants
@@ -185,7 +179,7 @@ export class DatabaseService {
       } else {
         console.log('🆕 Création nouvel utilisateur...');
         // Créer un nouvel utilisateur avec les crédits du code
-        const { data, error } = await supabase
+        const { data, error } = await supabaseAdmin
           .from('usersmvp')
           .insert([userData])
           .select()
@@ -208,7 +202,7 @@ export class DatabaseService {
   static async getUserByToken(token: string): Promise<User | null> {
     try {
       console.log('🔍 Récupération utilisateur par token:', token);
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('usersmvp')
         .select('*')
         .eq('session_token', token)
@@ -232,7 +226,7 @@ export class DatabaseService {
     try {
       console.log('🔍 Récupération email/credits pour:', userId);
       
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('usersmvp')
         .select('email, credits')
         .eq('id', userId)
@@ -256,7 +250,7 @@ export class DatabaseService {
     try {
       console.log('🔍 Récupération données complètes pour:', userId);
       
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from('usersmvp')
         .select('email, credits, plan')
         .eq('id', userId)
@@ -279,7 +273,7 @@ export class DatabaseService {
   static async updateCredits(userId: string, credits: number): Promise<void> {
     try {
       console.log('💰 Mise à jour crédits:', { userId, credits });
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('usersmvp')
         .update({ credits, last_activity: new Date().toISOString() })
         .eq('id', userId);
@@ -298,7 +292,7 @@ export class DatabaseService {
   // Mettre à jour la dernière activité d'un utilisateur
   static async updateLastActivity(userId: string): Promise<void> {
     try {
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('usersmvp')
         .update({ last_activity: new Date().toISOString() })
         .eq('id', userId);
@@ -346,7 +340,7 @@ export class DatabaseService {
   static async invalidateSession(token: string): Promise<void> {
     try {
       console.log('🔓 Invalidation session:', token);
-      const { error } = await supabase
+      const { error } = await supabaseAdmin
         .from('usersmvp')
         .update({ session_token: null })
         .eq('session_token', token);
