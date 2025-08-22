@@ -15,15 +15,59 @@ function generateUUID(): string {
 
 export async function POST(request: Request) {
   try {
-    const { email, code, userIp } = await request.json();
+    // Validation de l'entrée JSON
+    let requestData;
+    try {
+      requestData = await request.json();
+    } catch (parseError) {
+      console.error('❌ [API/LOGIN] Erreur parsing JSON:', parseError);
+      return NextResponse.json({ 
+        error: 'Format de données invalide' 
+      }, { status: 400 });
+    }
 
-    console.log('🚀 [API/LOGIN] Début processus de connexion pour:', { email, code, userIp });
+    const { email, code, userIp } = requestData;
+
+    // Validation des champs requis
+    if (!email || typeof email !== 'string') {
+      return NextResponse.json({ 
+        error: 'Email requis et doit être une chaîne de caractères' 
+      }, { status: 400 });
+    }
+
+    if (!code || typeof code !== 'string') {
+      return NextResponse.json({ 
+        error: 'Code d\'accès requis et doit être une chaîne de caractères' 
+      }, { status: 400 });
+    }
+
+    if (!userIp || typeof userIp !== 'string') {
+      return NextResponse.json({ 
+        error: 'Adresse IP requise et doit être une chaîne de caractères' 
+      }, { status: 400 });
+    }
+
+    // Validation basique du format email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return NextResponse.json({ 
+        error: 'Format d\'email invalide' 
+      }, { status: 400 });
+    }
+
+    console.log('🚀 [API/LOGIN] Début processus de connexion pour:', { 
+      email: email.substring(0, 3) + '***', // Log partiel pour sécurité
+      code: code.substring(0, 5) + '***', 
+      userIp 
+    });
 
     // 1. Vérifier si l'utilisateur est blacklisté
     const isBlacklisted = await DatabaseService.isBlacklisted(email, userIp);
     if (isBlacklisted) {
-      console.log('🚫 [API/LOGIN] Utilisateur blacklisté:', { email, userIp });
-      return NextResponse.json({ error: 'Accès refusé. Votre compte ou votre adresse IP est bloqué.' }, { status: 403 });
+      console.log('🚫 [API/LOGIN] Utilisateur blacklisté:', { email: email.substring(0, 3) + '***', userIp });
+      return NextResponse.json({ 
+        error: 'Accès refusé. Votre compte ou votre adresse IP est bloqué.' 
+      }, { status: 403 });
     }
 
     // 2. Vérifier le code d'accès
@@ -36,11 +80,13 @@ export async function POST(request: Request) {
     const codeData = validCodes[code as keyof typeof validCodes];
     
     if (!codeData) {
-      console.log('❌ [API/LOGIN] Code d\'accès invalide:', code);
-      return NextResponse.json({ error: 'Code d\'accès invalide' }, { status: 400 });
+      console.log('❌ [API/LOGIN] Code d\'accès invalide:', code.substring(0, 5) + '***');
+      return NextResponse.json({ 
+        error: 'Code d\'accès invalide' 
+      }, { status: 400 });
     }
 
-    console.log('✅ [API/LOGIN] Code valide trouvé:', codeData);
+    console.log('✅ [API/LOGIN] Code valide trouvé pour plan:', codeData.plan);
 
     // 3. Créer ou mettre à jour l'utilisateur
     const sessionToken = generateUUID();
@@ -54,14 +100,25 @@ export async function POST(request: Request) {
       session_token: sessionToken
     });
 
-    console.log('👤 [API/LOGIN] Utilisateur créé/mis à jour:', user);
+    console.log('👤 [API/LOGIN] Utilisateur créé/mis à jour avec succès');
 
     // 4. Renvoyer le token de session au client
-    return NextResponse.json({ sessionToken, credits: user.credits });
+    return NextResponse.json({ 
+      sessionToken, 
+      credits: user.credits 
+    }, { status: 200 });
 
   } catch (error) {
     console.error('💥 [API/LOGIN] Erreur serveur:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
-    return NextResponse.json({ error: `Erreur interne du serveur: ${errorMessage}` }, { status: 500 });
+    
+    // Gestion d'erreur sécurisée - ne pas exposer les détails internes
+    const isDevMode = process.env.NODE_ENV === 'development';
+    const errorMessage = isDevMode && error instanceof Error 
+      ? error.message 
+      : 'Une erreur interne s\'est produite';
+    
+    return NextResponse.json({ 
+      error: errorMessage 
+    }, { status: 500 });
   }
 }
