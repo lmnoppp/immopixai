@@ -15,6 +15,64 @@ const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN,
 });
 
+// Fonction pour générer un prompt personnalisé intelligent via GPT
+async function generateCustomPrompt(userRequest: string, detectedIssues: string[]): Promise<string> {
+  console.log('🎨 [CUSTOM-PROMPT] Génération intelligente d\'un prompt pour:', userRequest);
+  
+  try {
+    // Utiliser GPT pour analyser la demande et créer un prompt précis
+    const completion = await openai.chat.completions.create({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content: `Tu es un expert en génération de prompts pour l'édition d'images immobilières avec IA. 
+
+MISSION: Analyser une demande utilisateur en français et créer un prompt technique précis en anglais pour modifier une image.
+
+RÈGLES STRICTES:
+1. Génère UNIQUEMENT le prompt technique, pas d'explication
+2. Utilise un format: "Do: [actions précises], Don't: [interdictions]"
+3. Sois très spécifique sur les couleurs, matériaux, styles mentionnés
+4. Traduis fidèlement tous les détails de la demande
+5. Maintiens toujours le réalisme immobilier
+
+EXEMPLES:
+Demande: "papier peint floral rouge dans la cuisine"
+Prompt: "Do: add elegant red floral wallpaper to the kitchen walls, ensure the pattern is sophisticated and suitable for real estate photography, Don't: change room structure, add unrealistic elements, alter architectural features"
+
+Demande: "évier en marbre noir et blanc avec rayon de soleil"
+Prompt: "Do: replace the current sink with a black and white marble sink, add warm natural sunlight streaming through the space creating realistic lighting, enhance the overall ambiance, Don't: change room layout, add fantastical lighting effects, modify structural elements"`
+        },
+        {
+          role: "user", 
+          content: `Demande utilisateur: "${userRequest}"`
+        }
+      ],
+      max_tokens: 200,
+      temperature: 0.3,
+    });
+
+    const gptPrompt = completion.choices[0]?.message?.content?.trim();
+    
+    if (!gptPrompt) {
+      throw new Error('Pas de prompt généré par GPT');
+    }
+    
+    console.log('✅ [CUSTOM-PROMPT] Prompt GPT généré:', gptPrompt);
+    return gptPrompt;
+    
+  } catch (error) {
+    console.error('❌ [CUSTOM-PROMPT] Erreur GPT, fallback vers logique basique:', error);
+    
+    // Fallback amélioré si GPT échoue
+    const fallbackPrompt = `Do: ${userRequest} - apply this modification with attention to detail while keeping the image realistic and suitable for real estate photography, Don't: change room structure, add unrealistic elements, distort perspective, modify architectural features`;
+    
+    console.log('🔄 [CUSTOM-PROMPT] Prompt fallback:', fallbackPrompt);
+    return fallbackPrompt;
+  }
+}
+
 export async function POST(request: NextRequest) {
   // 1. Validation des dépendances critiques (variables d'environnement)
   if (!process.env.OPENAI_API_KEY || !process.env.REPLICATE_API_TOKEN) {
@@ -28,7 +86,7 @@ export async function POST(request: NextRequest) {
   try {
     // 2. Validation du corps de la requête
     const body = await request.json();
-    const { imageUrl, issues, processingOptions, isAutomatic } = body;
+    const { imageUrl, issues, processingOptions, isAutomatic, userPrompt } = body;
     
     if (!imageUrl || typeof imageUrl !== 'string') {
       return NextResponse.json(
@@ -63,10 +121,10 @@ export async function POST(request: NextRequest) {
 
     // 5. Génération du prompt final basé sur les issues détectées
     let finalPrompt = `Analyse et améliore cette image pour une annonce immobilière.`; // Placeholder
-    // NOTE: La logique complexe de génération de prompt a été retirée de cet extrait pour se concentrer sur les correctifs
     
     if (isAutomatic) {
       // Mode automatique - prompt basé uniquement sur les issues détectées
+      console.log('🔧 [API-PROCESS] Mode automatique - génération basée sur les défauts détectés');
       
       // Créer des instructions spécifiques basées sur les défauts
       const specificInstructions = issues.map((issue: string) => {
@@ -95,46 +153,54 @@ export async function POST(request: NextRequest) {
       finalPrompt = `Do: ${specificInstructions.join(', ')}
 Don't: change room structure, add new furniture, alter walls or windows, distort perspective, modify architectural elements`;
     } else {
-      // Mode personnalisé - prompt basé sur les issues + préférences utilisateur
-      const { removeObjects, improveLighting, neutralizeDecor, preserveElements } = processingOptions;
+      // Mode personnalisé - prompt basé sur la demande utilisateur
+      console.log('🎯 [API-PROCESS] Mode personnalisé - génération basée sur la demande utilisateur:', userPrompt);
       
-      const specificInstructions = [];
-      
-      if (removeObjects) {
-        const objectIssues = issues.filter((issue: string) => 
-          issue.includes('vaisselle') || issue.includes('égouttoir') || issue.includes('ustensiles') || 
-          issue.includes('désordre') || issue.includes('encombré') || issue.includes('clutter')
-        );
-        if (objectIssues.length > 0) {
-          specificInstructions.push('remove all personal items, dishes, utensils, and clutter from all surfaces');
+      if (userPrompt && userPrompt.trim()) {
+        // Générer un prompt personnalisé intelligent basé sur la demande utilisateur
+        finalPrompt = await generateCustomPrompt(userPrompt, issues);
+      } else if (processingOptions) {
+        // Fallback vers les options de traitement si pas de userPrompt
+        const { removeObjects, improveLighting, neutralizeDecor, preserveElements } = processingOptions;
+        
+        const specificInstructions = [];
+        
+        if (removeObjects) {
+          const objectIssues = issues.filter((issue: string) => 
+            issue.includes('vaisselle') || issue.includes('égouttoir') || issue.includes('ustensiles') || 
+            issue.includes('désordre') || issue.includes('encombré') || issue.includes('clutter')
+          );
+          if (objectIssues.length > 0) {
+            specificInstructions.push('remove all personal items, dishes, utensils, and clutter from all surfaces');
+          }
         }
-      }
-      
-      if (improveLighting) {
-        const lightingIssues = issues.filter((issue: string) => 
-          issue.includes('éclairage') || issue.includes('sombre') || issue.includes('insuffisant') || issue.includes('ambiance')
-        );
-        if (lightingIssues.length > 0) {
-          specificInstructions.push('enhance natural lighting, brighten the room, and create a warm, inviting atmosphere');
+        
+        if (improveLighting) {
+          const lightingIssues = issues.filter((issue: string) => 
+            issue.includes('éclairage') || issue.includes('sombre') || issue.includes('insuffisant') || issue.includes('ambiance')
+          );
+          if (lightingIssues.length > 0) {
+            specificInstructions.push('enhance natural lighting, brighten the room, and create a warm, inviting atmosphere');
+          }
         }
-      }
-      
-      if (neutralizeDecor) {
-        const decorIssues = issues.filter((issue: string) => 
-          issue.includes('décoration') || issue.includes('personnalisée') || issue.includes('dominante')
-        );
-        if (decorIssues.length > 0) {
-          specificInstructions.push('neutralize personalized decor and create a universal, neutral atmosphere');
+        
+        if (neutralizeDecor) {
+          const decorIssues = issues.filter((issue: string) => 
+            issue.includes('décoration') || issue.includes('personnalisée') || issue.includes('dominante')
+          );
+          if (decorIssues.length > 0) {
+            specificInstructions.push('neutralize personalized decor and create a universal, neutral atmosphere');
+          }
         }
-      }
-      
-      const dontActions = ['change room structure', 'add new furniture', 'distort perspective'];
-      if (preserveElements && preserveElements.trim()) {
-        dontActions.push(`alter ${preserveElements.trim()}`);
-      }
-      
-      finalPrompt = `Do: ${specificInstructions.join(', ')}
+        
+        const dontActions = ['change room structure', 'add new furniture', 'distort perspective'];
+        if (preserveElements && preserveElements.trim()) {
+          dontActions.push(`alter ${preserveElements.trim()}`);
+        }
+        
+        finalPrompt = `Do: ${specificInstructions.join(', ')}
 Don't: ${dontActions.join(', ')}`;
+      }
     }
 
     console.log('✅ Prompt généré avec succès pour:', userId);

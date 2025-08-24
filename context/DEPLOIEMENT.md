@@ -32,6 +32,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_votre_anon_key
 REPLICATE_API_TOKEN=your_replicate_token
 OPENAI_API_KEY=your_openai_key
 
+# ImageKit
+NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY=your_public_key
+IMAGEKIT_PRIVATE_KEY=your_private_key
+NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT=your_url_endpoint
+
+# Codes d'accès (format JSON sécurisé)
+VALID_ACCESS_CODES={"CODE-EXAMPLE-2025":{"plan":"starter","credits":40}}
+
 # Configuration
 NODE_ENV=production
 ```

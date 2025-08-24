@@ -70,12 +70,11 @@ export async function POST(request: Request) {
       }, { status: 403 });
     }
 
-    // 2. Vérifier le code d'accès
+    // 2. Vérifier le code d'accès - Codes IMMO en dur
     const validCodes = {
-      'IMMO-STARTER-2025': { plan: 'starter', credits: 40 },
-      'IMMO-CONFORT-2025': { plan: 'confort', credits: 150 },
-      'IMMO-PROMAX-2025': { plan: 'promax', credits: 300 },
-      'IMMOPIXTESTMVP07': { plan: 'test', credits: 3 }
+      'IMMO-CONFORT-2025': { plan: 'premium', credits: 100 },
+      'IMMO-STARTER-2025': { plan: 'starter', credits: 25 },
+      'IMMO-PRO-2025': { plan: 'pro', credits: 50 }
     };
     const codeData = validCodes[code as keyof typeof validCodes];
     

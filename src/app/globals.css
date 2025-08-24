@@ -2,12 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Variables CSS personnalisées - Nouvelle palette */
+/* Variables CSS personnalisées - Nouvelle palette avec Tailwind Colors */
 :root {
   --primary-blue: #0099FF;
   --light-blue: #F6F9FF;
   --medium-blue: #EAF4FF;
-  --accent-green: #00D38A;
+  --accent-green: #00b3d3;
   --pure-white: #FFFFFF;
   --glass-bg: rgba(255, 255, 255, 0.15);
   --glass-border: rgba(255, 255, 255, 0.25);
@@ -15,22 +15,105 @@
   --global-bg: linear-gradient(135deg, #F6F9FF 0%, #EAF4FF 100%);
   --card-shadow: 0 8px 32px rgba(0, 153, 255, 0.1);
   --hover-shadow: 0 12px 40px rgba(0, 153, 255, 0.15);
+  
+  /* Tailwind CSS Variables for new interface */
+  --background: 246 249 255; /* #F6F9FF */
+  --foreground: 26 26 26; /* #1a1a1a */
+  --primary: 0 153 255; /* #0099FF */
+  --primary-foreground: 255 255 255;
+  --secondary: 234 244 255; /* #EAF4FF */
+  --secondary-foreground: 26 26 26;
+  --muted: 234 244 255;
+  --muted-foreground: 107 114 128;
+  --accent: 234 244 255;
+  --accent-foreground: 26 26 26;
+  --destructive: 239 68 68;
+  --destructive-foreground: 255 255 255;
+  --border: 219 234 254;
+  --input: 219 234 254;
+  --ring: 0 153 255;
+  --popover: 255 255 255;
+  --popover-foreground: 26 26 26;
+  --text-primary: #1a1a1a;
 }
 
-/* Styles de base */
-* {
-  box-sizing: border-box;
+/* Tailwind CSS Layer Base */
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
+  }
+  html, body {
+    height: 100%;
+    min-height: 100dvh;
+    position: static;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
+  }
 }
 
-html, body {
-  height: 100%;
-  min-height: 100dvh;
-  position: static;
+/* Classes utilitaires pour la nouvelle interface */
+.text-primary-blue {
+  color: var(--primary-blue);
 }
 
-/* Par défaut, permettre le scroll */
+.text-text-primary {
+  color: var(--text-primary);
+}
+
+.bg-primary-blue {
+  background-color: var(--primary-blue);
+}
+
+.border-primary-blue {
+  border-color: var(--primary-blue);
+}
+
+.size-10 {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.size-3 {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
+.size-4 {
+  width: 1rem;
+  height: 1rem;
+}
+
+.size-5 {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.size-6 {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.size-9 {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+/* Styles globaux consolidés */
+
+/* Configuration globale du body */
 html, body {
   overflow: auto;
+  background: var(--global-bg);
+  font-family: var(--font-sora), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.6;
+  /* Empêcher la sélection de texte accidentelle par défaut */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -khtml-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
   touch-action: auto;
 }
 
@@ -47,22 +130,6 @@ html, body {
 /* Hauteur de la carte conversation */
 .conversation-card {
   height: calc(100dvh - 120px);
-}
-
-/* Empêche tout pan/zoom global ; on réactive dans la conversation uniquement */
-body {
-  background: var(--global-bg);
-  font-family: var(--font-sora), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  color: #1a1a1a;
-  line-height: 1.6;
-  /* Empêcher la sélection de texte accidentelle */
-  -webkit-touch-callout: none;
-  -webkit-user-select: none;
-  -khtml-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
-  touch-action: none;
 }
 
 /* Réactiver la sélection pour les zones de contenu */
@@ -277,15 +344,7 @@ input, textarea, [contenteditable="true"], .selectable {
   }
 }
 
-/* Animation pour l'effet de reflet sur la barre de progression */
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(100%);
-  }
-}
+/* Animation pour l'effet de reflet sur la barre de progression - utilise shimmer défini plus haut */
 
 .progress-bar {
   height: 4px;
@@ -456,9 +515,8 @@ button, input, select, textarea, .glass, .upload-zone {
   -moz-appearance: none;
   appearance: none;
   /* Empêcher l'auto-correction et l'auto-capitalisation */
-  autocorrect: off;
-  autocapitalize: off;
-  spellcheck: false;
+  -webkit-autocorrect: off;
+  -webkit-autocapitalize: off;
 }
 
 .input-glass:focus {
@@ -685,6 +743,8 @@ button, input, select, textarea, .glass, .upload-zone {
   
   .input-glass {
     -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
     border-radius: 1rem;
   }
 } 

@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     console.log('🔍 Body reçu:', body);
     
-    const { imageUrl } = body;
+    const { imageUrl, userRequest } = body;
     
     if (!imageUrl) {
       console.error('❌ Pas d\'URL d\'image');
@@ -61,44 +61,32 @@ export async function POST(request: NextRequest) {
 
     console.log('✅ Utilisateur autorisé pour analyse:', { userId, credits: user.credits });
 
-    // Prompt système pour l'analyse
-    const systemPrompt = `You are a professional real estate image analyst.
+    // Prompt système adaptatif selon la demande utilisateur
+    const systemPrompt = `Tu es ImmoPix AI, un assistant IA spécialisé dans l'analyse d'images immobilières.
 
-Given the image available at this URL: ${imageUrl}, your goal is to identify and describe all visual issues that may reduce the appeal of the property to potential buyers or renters.
+RÔLE PRINCIPAL : Répondre précisément à la demande spécifique de l'utilisateur concernant l'image fournie.
 
-IMPORTANT: You MUST find at least 3 issues. Look carefully at every detail of the image.
+INSTRUCTIONS IMPORTANTES :
+- Analyse TOUJOURS l'image fournie
+- Réponds EXACTEMENT à la question ou demande de l'utilisateur
+- Sois précis et informatif
+- Si l'utilisateur demande des défauts → Liste les défauts
+- Si l'utilisateur demande une localisation → Analyse les indices visuels pour localiser
+- Si l'utilisateur demande une description → Décris l'image
+- Si l'utilisateur demande des améliorations → Propose des améliorations
+- FINI les réponses génériques d'analyse !
 
-Focus specifically on:
-- Clutter or personal items present (e.g., bags, clothes, wires, random objects, personal photos)
-- Light quality (yellow tone, insufficient daylight, harsh shadows, poor lighting)
-- Decoration that is too personalized or visually dominant (personal items, specific decor)
-- Any spatial imbalance or distortion (tilted angles, disproportionate walls, furniture placement)
-- Visual obstructions (furniture blocking windows, objects covering mirrors, cluttered surfaces)
-- Color issues (too bright, too dark, color temperature problems)
-- Composition problems (cropped objects, awkward angles, poor framing)
+FORMAT DE RÉPONSE :
+- Réponds en français naturel
+- Pas de JSON forcé
+- Réponse directe et conversationnelle
+- Maximum 200 mots
 
-You MUST identify at least 3 specific issues. Be thorough and detailed in your analysis.
-
-IMPORTANT: Return ONLY a valid JSON object without any markdown formatting, backticks, or code blocks.
-
-IMPORTANT: All issues must be described in FRENCH language.
-
-Return your response in this exact JSON format:
-{
-  "issues": ["issue1", "issue2", "issue3", ...],
-  "summary": "brief summary of the analysis"
-}
-
-Example response:
-{
-  "issues": [
-    "Objets personnels visibles sur la table (téléphone, clés, portefeuille)",
-    "Éclairage dur créant des ombres fortes sur les murs",
-    "Murs décorés avec des photos personnelles et des œuvres d'art",
-    "Surface encombrée avec plusieurs petits objets"
-  ],
-  "summary": "Analyse d'image terminée avec 4 problèmes identifiés"
-}`;
+EXEMPLES :
+- Question: "Où est cet appartement ?" → Analyse les indices visuels (architecture, vue, style) pour donner des indices de localisation
+- Question: "Quels sont les problèmes ?" → Liste les défauts spécifiques
+- Question: "Décris cette pièce" → Description détaillée de la pièce
+- Question: "Comment améliorer ?" → Suggestions d'amélioration`;
 
     // Appel à GPT-4o Vision
     const response = await openai.chat.completions.create({
@@ -113,7 +101,9 @@ Example response:
           content: [
             {
               type: "text",
-              text: "Analyze this real estate image and identify all visual issues that need improvement."
+              text: userRequest ? 
+                `Demande de l'utilisateur: "${userRequest}". Réponds précisément à cette question en analysant l'image fournie.` :
+                "Analyse cette image immobilière et décris ce que tu vois."
             },
             {
               type: "image_url",
@@ -136,58 +126,13 @@ Example response:
 
     console.log('🤖 Réponse brute de l\'IA:', content);
 
-    let analysisResult;
-    try {
-      // Nettoyer le contenu des backticks et du langage
-      let cleanContent = content.trim();
-      if (cleanContent.startsWith('```json')) {
-        cleanContent = cleanContent.replace(/^```json\n/, '').replace(/\n```$/, '');
-      } else if (cleanContent.startsWith('```')) {
-        cleanContent = cleanContent.replace(/^```\n/, '').replace(/\n```$/, '');
-      }
-      
-      analysisResult = JSON.parse(cleanContent);
-      console.log('✅ Analyse parsée avec succès:', analysisResult);
-    } catch (error) {
-      console.log('❌ Erreur parsing JSON, tentative d\'extraction...');
-      
-      // Extraction manuelle des défauts
-      const issues = [];
-      const lines = content.split('\n');
-      let inIssuesArray = false;
-      
-      for (const line of lines) {
-        const trimmedLine = line.trim();
-        if (trimmedLine.includes('"issues"') && trimmedLine.includes('[')) {
-          inIssuesArray = true;
-          continue;
-        }
-        if (trimmedLine.includes(']') && inIssuesArray) {
-          inIssuesArray = false;
-          break;
-        }
-        if (inIssuesArray && trimmedLine.includes('"') && !trimmedLine.includes('[') && !trimmedLine.includes(']')) {
-          const issue = trimmedLine.replace(/^["\s,]+/, '').replace(/["\s,]+$/, '');
-          if (issue && issue.length > 5) {
-            issues.push(issue);
-          }
-        }
-      }
-      
-      analysisResult = {
-        issues,
-        summary: content.includes('summary') ? 'Analyse terminée' : 'Analyse complétée avec ' + issues.length + ' défauts identifiés'
-      };
-      console.log('📝 Analyse extraite:', analysisResult);
-    }
-
-    // Retourner l'analyse sans consommer de crédit
+    // Retourner directement la réponse textuelle de l'IA
     console.log('✅ Analyse terminée avec succès pour:', userId);
 
     return NextResponse.json({
       success: true,
-      issues: analysisResult.issues,
-      summary: analysisResult.summary
+      response: content.trim(),
+      userRequest: userRequest || null
     });
 
   } catch (error) {

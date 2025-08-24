@@ -1,60 +1,79 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { useConversationStore } from '@/store/conversationStore';
-import { Upload, Sparkles, Download, RotateCcw, MessageCircle, User, CreditCard, Image as ImageIcon, Settings, X } from 'lucide-react';
-import Button from '@/components/Button';
-import GlassCard from '@/components/GlassCard';
-import Loader from '@/components/Loader';
+import React, { useState, useRef, useEffect } from 'react';
+import { Send, Bot, Loader2, Download, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Header } from '@/components/Header';
+import { ChatMessage } from '@/components/ChatMessage';
+import { ImageUpload } from '@/components/ImageUpload';
+import { DatabaseService } from '@/lib/supabase';
+
+interface Message {
+  id: number;
+  type: 'user' | 'ai';
+  text: string;
+  image?: {
+    file: File;
+    preview: string;
+  };
+  generatedImage?: {
+    url: string;
+    downloadName: string;
+  };
+  timestamp: Date;
+  isAnalysis?: boolean; // Gratuit si true
+  isRetrying?: boolean; // Retry gratuit
+}
+
+interface SessionMemory {
+  lastUploadedImage: { file: File; preview: string } | null;
+  lastGeneratedImage: { url: string; downloadName: string } | null;
+  conversationHistory: Message[];
+  retryCount: number;
+}
+
+// Forcer le rendu dynamique pour cette page (pas de prerender)
+export const dynamic = 'force-dynamic';
 
 export default function DashboardPage() {
-  const {
-    uploadedImage,
-    isUploading,
-    isAnalyzing,
-    isProcessing,
-    analysisResult,
-    processedImage,
-    messages,
-    currentStep,
-    setUploadedImage,
-    setUploading,
-    setAnalyzing,
-    setAnalysisResult,
-    setProcessing,
-    setProcessedImage,
-    addMessage,
-    setCurrentStep,
-    reset
-  } = useConversationStore();
-
-  const [processingOptions, setProcessingOptions] = useState({
-    removeObjects: true,
-    improveLighting: true,
-    neutralizeDecor: true,
-    preserveElements: ''
-  });
-
+  // Données utilisateur réelles (récupérées via useEffect)
   const [userData, setUserData] = useState<{
     email: string;
     credits: number;
-    plan: string;
+    id: string;
   } | null>(null);
-
-  const [isCustomPanelOpen, setIsCustomPanelOpen] = useState(false);
-  const [customInstruction, setCustomInstruction] = useState('');
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 1,
+      type: 'ai',
+      text: 'Bonjour ! Je suis ImmoPix AI, votre assistant intelligent pour l\'analyse et la retouche d\'images immobilières. 📸\n\nVous pouvez :\n• Envoyer une image pour une analyse gratuite\n• Demander des retouches spécifiques (suppression d\'objets, amélioration lumière, etc.)\n• Enchaîner les modifications sur la même image\n\nComment puis-je vous aider aujourd\'hui ?',
+      timestamp: new Date(),
+      isAnalysis: true
+    }
+  ]);
+  
+  const [inputText, setInputText] = useState('');
+  const [selectedImage, setSelectedImage] = useState<{ file: File; preview: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingType, setLoadingType] = useState<'chat' | 'analysis' | 'processing'>('chat');
+  const [sessionMemory, setSessionMemory] = useState<SessionMemory>({
+    lastUploadedImage: null,
+    lastGeneratedImage: null,
+    conversationHistory: [],
+    retryCount: 0
+  });
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Désactiver l'auto-scroll pour éviter les "descentes automatiques"
-  // const scrollToBottom = () => {
-  //   messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  // };
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-  // useEffect(() => {
-  //   scrollToBottom();
-  // }, [messages]);
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   // Récupérer les données utilisateur au chargement
   useEffect(() => {
@@ -66,525 +85,868 @@ export default function DashboardPage() {
           setUserData({
             email: user.email,
             credits: user.credits,
-            plan: user.plan
+            id: user.id
           });
+        } else {
+          console.error('Erreur récupération données utilisateur');
+          // Rediriger vers login si pas authentifié
+          window.location.href = '/login';
         }
       } catch (error) {
-        console.error('Erreur récupération données utilisateur:', error);
+        console.error('Erreur API user-data:', error);
+        window.location.href = '/login';
       }
     };
 
     fetchUserData();
   }, []);
 
-  const handleFileUpload = async (file: File) => {
-    if (!file) return;
 
-    setUploading(true);
-    addMessage({
-      type: 'system',
-      content: 'Upload de l\'image en cours...'
-    });
 
-    try {
-      const formData = new FormData();
-      formData.append('image', file);
-
-      const response = await fetch('/api/upload-image', {
-        method: 'POST',
-        body: formData
-      });
-
-      if (!response.ok) {
-        throw new Error('Erreur upload');
-      }
-
-      const { imageUrl } = await response.json();
-      setUploadedImage(imageUrl);
-      setCurrentStep('analysis');
-      
-      // Ajouter l'image originale dans la conversation
-      addMessage({
-        type: 'image',
-        content: imageUrl,
-        imageType: 'original'
-      });
-
-    } catch (error) {
-      addMessage({
-        type: 'system',
-        content: 'Erreur lors de l\'upload de l\'image. Veuillez réessayer.'
-      });
-    } finally {
-      setUploading(false);
+  // Analyser l'intention avec LLM intelligent - COMPRÉHENSION VRAIE
+  const analyzeUserIntent = async (text: string, hasImage: boolean): Promise<'analysis' | 'edit_request' | 'need_image' | 'continuation' | 'conversation' | 'clarification'> => {
+    console.log('🧠 [INTENT] Analyse LLM intelligente pour:', text, 'avec image:', hasImage);
+    
+    // Si pas de texte et image uniquement -> analyse directe
+    if (hasImage && !text.trim()) {
+      return 'analysis';
     }
-  };
-
-  const handleAnalyzeImage = async () => {
-    if (!uploadedImage) return;
-
-    setAnalyzing(true);
-    addMessage({
-      type: 'user',
-      content: 'Analyser l\'image'
-    });
-
+    
+    // Récupérer le contexte complet
+    const recentMessages = messages.slice(-6);
+    const hasRecentImage = recentMessages.some(msg => msg.type === 'user' && msg.image);
+    const recentAnalysis = recentMessages.find(msg => msg.type === 'ai' && msg.isAnalysis === true);
+    
+    // Construire le contexte riche
+    const conversationContext = recentMessages.map(msg => 
+      `${msg.type === 'user' ? 'UTILISATEUR' : 'IA'}: ${msg.text || '[image envoyée]'}${msg.image ? ' [AVEC IMAGE]' : ''}`
+    ).join('\n');
+    
     try {
-      const response = await fetch('/api/analyze-image', {
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          imageUrl: uploadedImage
+          message: `Tu es un analyseur d'intentions ultra-précis. Ta mission est de comprendre EXACTEMENT ce que veut l'utilisateur.
+
+HISTORIQUE COMPLET DE LA CONVERSATION:
+${conversationContext}
+
+NOUVEAU MESSAGE UTILISATEUR: "${text}"${hasImage ? ' [avec image fournie]' : ' [sans image]'}
+
+CONTEXTE IMPORTANT:
+- Analyse TOUTE la conversation pour comprendre le contexte
+- L'utilisateur peut faire référence à des éléments mentionnés avant
+- Sois attentif aux nuances de langage
+- Une même phrase peut avoir différentes intentions selon le contexte
+
+INTENTIONS POSSIBLES (réponds EXACTEMENT un de ces mots):
+
+1. "conversation" = L'utilisateur DEMANDE quelque chose sans vouloir d'action immédiate
+   EXEMPLES: questions, demandes d'avis, demandes de suggestions, discussions
+   - "que penses-tu de ça ?"
+   - "quoi améliorer ?" 
+   - "tu crois que je peux ?"
+   - "des idées ?"
+   - "qu'est-ce que tu en penses ?"
+   - "comment faire ?"
+   - "ça me va ?"
+
+2. "edit_request" = L'utilisateur ORDONNE une action concrète sur une image
+   EXEMPLES: ordres directs, commandes d'action, demandes de modification
+   - "fais-le"
+   - "applique ça"
+   - "change la couleur"
+   - "améliore maintenant"
+   - "retouche"
+   - "modifie"
+   - "supprime X"
+
+3. "analysis" = L'utilisateur veut analyser/examiner une image en détail
+   EXEMPLES: demandes d'inspection, d'identification de problèmes
+   - "qu'est-ce qui ne va pas ?"
+   - "analyse cette image"
+   - "liste les problèmes"
+   - "examine ça"
+
+RÈGLES D'ANALYSE:
+- Regarde le CONTEXTE de toute la conversation
+- Si c'est une QUESTION ou DEMANDE D'AVIS → "conversation"
+- Si c'est un ORDRE ou COMMANDE → "edit_request"  
+- Si c'est une DEMANDE D'ANALYSE → "analysis"
+- En cas de doute, privilégie "conversation"
+
+ATTENTION AUX NUANCES:
+- "jpeux upgrade quoi" = QUESTION pour des suggestions → "conversation"
+- "upgrade ça" = ORDRE d'action → "edit_request"
+- "tu penses que je peux améliorer" = DEMANDE D'AVIS → "conversation"
+- "améliore selon tes suggestions" = ORDRE → "edit_request"
+
+Analyse tout le contexte et réponds UNIQUEMENT par un des trois mots: conversation, edit_request, ou analysis`,
+          conversationHistory: []
         })
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Erreur API:', response.status, errorText);
-        throw new Error('Erreur analyse');
+        throw new Error('Erreur API intent');
       }
 
-      const responseData = await response.json();
-      console.log('🔍 Réponse complète de l\'API:', responseData);
+      const { response: gptResponse } = await response.json();
+      const intent = gptResponse.trim().toLowerCase();
       
-      const { issues, summary } = responseData;
-      console.log('🔍 Type de issues:', typeof issues);
-      console.log('🔍 Issues:', issues);
-      console.log('🔍 Longueur issues:', issues ? issues.length : 'undefined');
+      // Validation stricte
+      const validIntents = ['analysis', 'edit_request', 'conversation', 'clarification'];
+      const detectedIntent = validIntents.find(v => intent.includes(v)) || 'clarification';
       
-      setAnalysisResult({ issues, summary });
-      setCurrentStep('options');
-
-      // Ajouter l'analyse dans la conversation
-      const issuesList = issues && issues.length > 0 
-        ? issues.map((issue: string, index: number) => `${index + 1}. ${issue}`).join('\n')
-        : 'Aucun défaut majeur identifié';
+      console.log('🎯 [INTENT] LLM comprend:', detectedIntent, '- Réponse brute:', intent);
+      return detectedIntent as any;
       
-      console.log('📝 Liste des défauts:', issuesList);
-      console.log('📝 Nombre de défauts:', issues ? issues.length : 0);
-      
-      const analysisMessage = issues && issues.length > 0
-        ? `J'ai analysé votre image et identifié ${issues.length} élément(s) à améliorer :\n\n${issuesList}\n\nSouhaitez-vous que je corrige ces éléments automatiquement, ou préférez-vous les ajuster manuellement ?`
-        : `J'ai analysé votre image mais n'ai identifié aucun défaut majeur nécessitant une correction.\n\nVotre image semble déjà optimisée ! Souhaitez-vous quand même procéder à quelques améliorations automatiques ?`;
-      
-      console.log('📝 Message final:', analysisMessage);
-      
-      addMessage({
-        type: 'ai',
-        content: analysisMessage
-      });
-
     } catch (error) {
-      addMessage({
-        type: 'system',
-        content: 'Erreur lors de l\'analyse de l\'image. Veuillez réessayer.'
-      });
-    } finally {
-      setAnalyzing(false);
+      console.error('❌ [INTENT] Erreur LLM, fallback conversation:', error);
+      return 'conversation';
     }
   };
 
-  const handleAutomaticProcessing = async () => {
-    if (!analysisResult) return;
-
-    setProcessing(true);
-    addMessage({
-      type: 'user',
-      content: 'Corriger automatiquement'
-    });
-
+  // Générer un prompt contextuel basé sur la conversation
+  const generateContextualPrompt = async (userText: string, conversationHistory: Message[]): Promise<string> => {
+    console.log('🧠 [CONTEXT] Génération prompt contextuel pour:', userText);
+    
+    // Récupérer les derniers messages avec contexte
+    const recentMessages = conversationHistory.slice(-8);
+    const conversationContext = recentMessages.map(msg => 
+      `${msg.type === 'user' ? 'UTILISATEUR' : 'IA'}: ${msg.text || '[image]'}`
+    ).join('\n');
+    
     try {
-      const response = await fetch('/api/process-image', {
+      const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          imageUrl: uploadedImage,
-          issues: analysisResult.issues,
-          isAutomatic: true
+          message: `Tu es un expert en création de prompts d'édition d'images. Ta mission est de transformer une conversation en instructions précises pour modifier une image.
+
+HISTORIQUE COMPLET DE LA CONVERSATION:
+${conversationContext}
+
+MESSAGE ACTUEL DE L'UTILISATEUR: "${userText}"
+
+CONTEXTE DE LA TÂCHE:
+- L'utilisateur veut modifier une image basée sur toute la conversation
+- Tu dois analyser TOUT ce qui s'est dit pour comprendre EXACTEMENT quoi faire
+- Les suggestions précédentes de l'IA doivent être prises en compte
+- Les préférences et demandes de l'utilisateur doivent être intégrées
+
+INSTRUCTIONS POUR CRÉER LE PROMPT:
+1. Analyse toute la conversation pour identifier :
+   - Quels éléments ont été mentionnés (objets, couleurs, problèmes, etc.)
+   - Quelles suggestions ont été données par l'IA
+   - Ce que l'utilisateur veut vraiment modifier
+   - Les détails spécifiques mentionnés
+
+2. Traduis tout ça en instructions d'édition précises :
+   - Sois spécifique sur QUOI modifier
+   - Indique COMMENT le modifier
+   - Inclus tous les détails mentionnés dans la conversation
+   - Adapte-toi au type d'image (intérieur, extérieur, objets, etc.)
+
+3. Crée un prompt complet qui :
+   - Intègre tous les éléments de conversation
+   - Soit actionnable pour un système d'édition d'image
+   - Préserve l'esthétique et le réalisme
+   - Tienne compte du contexte immobilier si applicable
+
+EXEMPLES DE TRANSFORMATION:
+- Si conversation parle de "ranger la pièce" + "cadres droits" → "Organiser et ranger tous les objets dispersés dans la pièce, redresser et aligner parfaitement tous les cadres sur les murs"
+- Si "changer couleurs coussins" + "en vert" → "Modifier la couleur des coussins du canapé pour les rendre verts, en gardant les textures et l'éclairage naturels"
+- Si "améliorer éclairage" + "plus lumineux" → "Augmenter significativement la luminosité générale de la pièce, améliorer l'éclairage naturel, réduire les ombres"
+
+RÈGLES IMPORTANTES:
+- Utilise TOUS les éléments mentionnés dans la conversation
+- Sois précis et détaillé
+- Adapte-toi au contexte (ne mentionne pas des éléments non pertinents)
+- Si l'utilisateur dit des mots simples comme "fait", "ok", "applique", base-toi sur les suggestions précédentes
+
+Réponds UNIQUEMENT par le prompt d'édition détaillé, sans explications ni commentaires.`,
+          conversationHistory: []
         })
       });
 
       if (!response.ok) {
-        throw new Error('Erreur traitement');
+        throw new Error('Erreur API contextual prompt');
       }
 
-      // CORRECTION 1: Lire la bonne propriété "processedImageUrl"
-      const { processedImageUrl: resultImage } = await response.json();
-      setProcessedImage(resultImage);
-      setCurrentStep('result');
-
-      // CORRECTION 2: Mettre à jour les crédits côté client
-      if (userData) {
-        setUserData(prevData => prevData ? { ...prevData, credits: prevData.credits - 1 } : null);
-      }
-
-      // Ajouter l'image traitée dans la conversation
-      addMessage({
-        type: 'ai',
-        content: 'Voici votre image optimisée ! J\'ai corrigé automatiquement tous les éléments identifiés.'
-      });
-
-      addMessage({
-        type: 'image',
-        content: resultImage,
-        imageType: 'processed'
-      });
-
+      const { response: contextPrompt } = await response.json();
+      return contextPrompt.trim() || userText;
+      
     } catch (error) {
-      addMessage({
-        type: 'system',
-        content: 'Erreur lors du traitement de l\'image. Veuillez réessayer.'
-      });
-    } finally {
-      setProcessing(false);
+      console.error('❌ [CONTEXT] Erreur génération prompt contextuel:', error);
+      return userText; // Fallback sur le texte original
     }
   };
 
-  const handleCustomProcessing = async () => {
-    if (!analysisResult) return;
+  // Télécharger une image vers ImageKit
+  const uploadImage = async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('image', file);
 
-    setProcessing(true);
-    addMessage({
-      type: 'user',
-      content: 'Traitement personnalisé avec mes préférences'
+    const response = await fetch('/api/upload-image', {
+      method: 'POST',
+      body: formData
     });
 
+    if (!response.ok) {
+      throw new Error('Erreur upload image');
+    }
+
+    const { imageUrl } = await response.json();
+    return imageUrl;
+  };
+
+  // Appeler Qwen pour une conversation (avec redirection GPT si nécessaire)
+  const callQwenConversation = async (userText: string, needsImageAnalysis: boolean = false, hasImage: boolean = false): Promise<string> => {
     try {
-      const response = await fetch('/api/process-image', {
+      console.log('🤖 [QWEN] Appel à l\'API Qwen pour:', userText);
+      
+      const response = await fetch('/api/qwen-chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          imageUrl: uploadedImage,
-          issues: analysisResult.issues,
-          processingOptions,
-          isAutomatic: false
+          message: userText,
+          needsImageAnalysis,
+          hasImage,
+          conversationHistory: messages
         })
       });
 
       if (!response.ok) {
-        throw new Error('Erreur traitement');
+        throw new Error('Erreur API Qwen');
       }
 
-      // CORRECTION 1: Lire la bonne propriété "processedImageUrl"
-      const { processedImageUrl: resultImage } = await response.json();
-      setProcessedImage(resultImage);
-      setCurrentStep('result');
-
-      // CORRECTION 2: Mettre à jour les crédits côté client
-      if (userData) {
-        setUserData(prevData => prevData ? { ...prevData, credits: prevData.credits - 1 } : null);
+      const { response: qwenResponse, redirectToGPT } = await response.json();
+      console.log('✅ [QWEN] Réponse Qwen reçue:', qwenResponse);
+      
+      // Si Qwen demande une redirection vers GPT
+      if (redirectToGPT && qwenResponse.startsWith('REDIRECT_TO_GPT:')) {
+        console.log('🔄 [QWEN] Redirection vers GPT demandée');
+        return await callGPTConversation(userText);
       }
-
-      // Ajouter l'image traitée dans la conversation
-      addMessage({
-        type: 'ai',
-        content: 'Voici votre image optimisée selon vos préférences personnalisées !'
-      });
-
-      addMessage({
-        type: 'image',
-        content: resultImage,
-        imageType: 'processed'
-      });
-
+      
+      return qwenResponse;
     } catch (error) {
-      addMessage({
-        type: 'system',
-        content: 'Erreur lors du traitement de l\'image. Veuillez réessayer.'
-      });
-    } finally {
-      setProcessing(false);
+      console.error('❌ [QWEN] Erreur lors de l\'appel Qwen:', error);
+      // Fallback vers GPT en cas d'erreur Qwen
+      console.log('🔄 [QWEN] Fallback vers GPT');
+      return await callGPTConversation(userText);
     }
   };
 
-  const handleDownload = async () => {
-    if (!processedImage) return;
-    
+  // Appeler GPT pour une conversation (fallback ou redirection)
+  const callGPTConversation = async (userText: string): Promise<string> => {
     try {
-      // Récupérer l'image comme blob pour contourner les limitations cross-origin
-      const response = await fetch(processedImage);
-      const blob = await response.blob();
+      console.log('🤖 [GPT] Appel à l\'API Chat GPT pour:', userText);
       
-      // Créer un URL temporaire pour le blob
-      const blobUrl = URL.createObjectURL(blob);
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          message: userText,
+          conversationHistory: messages
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Erreur API chat');
+      }
+
+      const { response: gptResponse } = await response.json();
+      console.log('✅ [GPT] Réponse GPT reçue:', gptResponse);
       
-      // Créer et déclencher le téléchargement
-      const link = document.createElement('a');
-      link.href = blobUrl;
-      link.download = 'immopix-optimized.png';
-      link.style.display = 'none';
-      
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      // Nettoyer l'URL temporaire
-      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
-      
+      return gptResponse;
     } catch (error) {
-      console.error('Erreur lors du téléchargement:', error);
-      // Fallback pour les cas où la méthode blob échoue
-      const link = document.createElement('a');
-      link.href = processedImage;
-      link.download = 'immopix-optimized.png';
-      link.target = '_blank';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      console.error('❌ [GPT] Erreur lors de l\'appel GPT:', error);
+      throw error;
     }
   };
 
-  const handleReset = () => {
-    reset();
-    setProcessingOptions({
-      removeObjects: true,
-      improveLighting: true,
-      neutralizeDecor: true,
-      preserveElements: ''
+  // Analyser une image via l'API
+  const analyzeImage = async (imageUrl: string, userRequest?: string): Promise<{ response: string; userRequest?: string }> => {
+    const response = await fetch('/api/analyze-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ 
+        imageUrl,
+        userRequest 
+      })
     });
-    setIsCustomPanelOpen(false);
-    setCustomInstruction('');
+
+    if (!response.ok) {
+      throw new Error('Erreur analyse image');
+    }
+
+    return response.json();
   };
 
-  const handleCustomInstructions = () => {
-    setIsCustomPanelOpen(true);
+  // Traiter une image via l'API
+  const processImage = async (imageUrl: string, issues: string[], userPrompt?: string, isAutomatic: boolean = false): Promise<string> => {
+    console.log('🔄 [DASHBOARD] Appel processImage avec:', { userPrompt, isAutomatic });
+    
+    const response = await fetch('/api/process-image', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        imageUrl,
+        issues,
+        userPrompt,
+        isAutomatic: isAutomatic // Utiliser la valeur passée en paramètre
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('Erreur traitement image');
+    }
+
+    const { processedImageUrl } = await response.json();
+    return processedImageUrl;
   };
 
-  const handleSendCustomInstruction = () => {
-    if (!customInstruction.trim()) return;
+  // Générer une réponse IA selon le contexte
+  const generateAIResponse = async (intent: string, userText: string, userImage?: { file: File; preview: string }): Promise<Message> => {
+    const baseId = Date.now() + 1;
+
+    switch (intent) {
+      case 'analysis':
+        // Analyse gratuite via API
+        if (!userImage) {
+          throw new Error('Image requise pour analyse');
+        }
+
+        try {
+          // 1. Upload de l'image
+          const imageUrl = await uploadImage(userImage.file);
+          
+          // 2. Analyse de l'image avec la demande utilisateur
+          const analysisResult = await analyzeImage(imageUrl, userText);
+          
+          return {
+            id: baseId,
+            type: 'ai',
+            text: analysisResult.response,
+            timestamp: new Date(),
+            isAnalysis: true
+          };
+        } catch (error) {
+          console.error('Erreur analyse:', error);
+          return {
+            id: baseId,
+            type: 'ai',
+            text: `❌ **Erreur d'analyse**\n\nJe n'ai pas pu analyser votre image. Veuillez réessayer avec une autre image.`,
+            timestamp: new Date(),
+            isAnalysis: true
+          };
+        }
+
+      case 'edit_request':
+        // Retouche payante (-1 crédit) via API
+        let imageToProcess: string;
+        
+        if (userImage) {
+          // Image fournie avec ce message
+          try {
+            imageToProcess = await uploadImage(userImage.file);
+          } catch (error) {
+            console.error('Erreur upload image:', error);
+            return {
+              id: baseId,
+              type: 'ai',
+              text: `❌ **Erreur d'upload**\n\nJe n'ai pas pu traiter votre image. Veuillez réessayer.`,
+              timestamp: new Date(),
+              isAnalysis: true
+            };
+          }
+        } else {
+          // Priorité à l'image générée, sinon image récente de l'utilisateur
+          if (sessionMemory.lastGeneratedImage) {
+            console.log('🔄 [EDIT] Utilisation de l\'image générée précédente:', sessionMemory.lastGeneratedImage.url);
+            imageToProcess = sessionMemory.lastGeneratedImage.url;
+          } else {
+            // Récupérer l'image récente de l'historique
+            const recentMessages = messages.slice(-5);
+            const recentUserMessage = recentMessages.reverse().find(msg => msg.type === 'user' && msg.image);
+            
+            if (!recentUserMessage?.image) {
+              return {
+                id: baseId,
+                type: 'ai',
+                text: `📸 **Image nécessaire**\n\nPour appliquer "${userText}", j'ai besoin d'une photo. Pourriez-vous m'envoyer l'image que vous souhaitez modifier ?`,
+                timestamp: new Date(),
+                isAnalysis: true
+              };
+            }
+            
+            // Réuploader l'image récente
+            try {
+              imageToProcess = await uploadImage(recentUserMessage.image.file);
+              console.log('🔄 [EDIT] Utilisation de l\'image récente de l\'utilisateur');
+            } catch (error) {
+              console.error('Erreur réupload image récente:', error);
+              return {
+                id: baseId,
+                type: 'ai',
+                text: `❌ **Erreur de traitement**\n\nJe n'arrive pas à récupérer l'image précédente. Pouvez-vous la renvoyer ?`,
+                timestamp: new Date(),
+                isAnalysis: true
+              };
+            }
+          }
+        }
+
+        try {
+          // 2. Analyser le contexte pour créer un prompt intelligent
+          const contextualPrompt = await generateContextualPrompt(userText, messages);
+          console.log('🧠 [CONTEXT] Prompt contextuel généré:', contextualPrompt);
+          
+          // 3. Traitement de l'image avec le prompt contextuel
+          const processedImageUrl = await processImage(imageToProcess, [], contextualPrompt, false);
+          
+          const newGeneratedImage = {
+            url: processedImageUrl,
+            downloadName: `immopix_retouche_${Date.now()}.jpg`
+          };
+          
+          setSessionMemory(prev => ({
+            ...prev,
+            lastUploadedImage: userImage || prev.lastUploadedImage,
+            lastGeneratedImage: newGeneratedImage
+          }));
+
+          return {
+            id: baseId,
+            type: 'ai',
+            text: `✨ **Retouche terminée !**\n\nJ'ai appliqué votre demande : "${userText}"\n\nLe résultat respecte l'esthétique immobilière professionnelle. Souhaitez-vous d'autres modifications ?`,
+            generatedImage: newGeneratedImage,
+            timestamp: new Date()
+          };
+        } catch (error) {
+          console.error('Erreur traitement:', error);
+          return {
+            id: baseId,
+            type: 'ai',
+            text: `❌ **Erreur de traitement**\n\nJe n'ai pas pu traiter votre image. Aucun crédit n'a été débité. Veuillez réessayer.`,
+            timestamp: new Date(),
+            isAnalysis: true // Gratuit en cas d'erreur
+          };
+        }
+
+      case 'need_image':
+        return {
+          id: baseId,
+          type: 'ai',
+          text: `📸 **Image nécessaire**\n\nPour appliquer cette retouche, j'ai besoin d'une photo. Pourriez-vous m'envoyer l'image que vous souhaitez modifier ?\n\nJe pourrai alors "${userText}" selon vos souhaits.`,
+          timestamp: new Date(),
+          isAnalysis: true
+        };
+
+      case 'continuation':
+        // Retouche sur l'image générée précédente
+        if (!sessionMemory.lastGeneratedImage) {
+          return {
+            id: baseId,
+            type: 'ai',
+            text: `📸 **Image précédente introuvable**\n\nJe n'ai pas trouvé d'image précédente à modifier. Veuillez envoyer une nouvelle image.`,
+            timestamp: new Date(),
+            isAnalysis: true
+          };
+        }
+
+        try {
+          // Utiliser l'image précédemment générée comme base
+          const previousImageUrl = sessionMemory.lastGeneratedImage.url;
+          
+          // Analyser le contexte pour créer un prompt intelligent
+          const contextualPrompt = await generateContextualPrompt(userText, messages);
+          console.log('🧠 [CONTEXT] Prompt contextuel pour continuation:', contextualPrompt);
+          
+          // Traitement avec le prompt contextuel
+          const processedImageUrl = await processImage(previousImageUrl, [], contextualPrompt, false);
+          
+          const continuationImage = {
+            url: processedImageUrl,
+            downloadName: `immopix_v${sessionMemory.conversationHistory.length + 1}_${Date.now()}.jpg`
+          };
+          
+          setSessionMemory(prev => ({
+            ...prev,
+            lastGeneratedImage: continuationImage
+          }));
+
+          return {
+            id: baseId,
+            type: 'ai',
+            text: `🔄 **Nouvelle version créée !**\n\nJ'ai appliqué "${userText}" sur la dernière version.\n\nCette modification améliore encore le rendu professionnel. D'autres ajustements ?`,
+            generatedImage: continuationImage,
+            timestamp: new Date()
+          };
+        } catch (error) {
+          console.error('Erreur continuation:', error);
+          return {
+            id: baseId,
+            type: 'ai',
+            text: `❌ **Erreur de continuation**\n\nJe n'ai pas pu modifier l'image précédente. Aucun crédit n'a été débité. Veuillez réessayer.`,
+            timestamp: new Date(),
+            isAnalysis: true
+          };
+        }
+
+      case 'clarification':
+        // Demande de clarification quand l'intention n'est pas claire
+        try {
+          const clarificationResponse = await callQwenConversation(`L'utilisateur a dit: "${userText}". Je n'ai pas bien compris sa demande. Peux-tu demander poliment des précisions sur ce qu'il souhaite faire ?`);
+          return {
+            id: baseId,
+            type: 'ai',
+            text: clarificationResponse,
+            timestamp: new Date(),
+            isAnalysis: true // Gratuit
+          };
+        } catch (error) {
+          console.error('Erreur clarification:', error);
+          return {
+            id: baseId,
+            type: 'ai',
+            text: `🤔 **Je n'ai pas bien compris**\n\nPouvez-vous préciser ce que vous souhaitez ? Par exemple :\n• Une question sur cette image ?\n• Modifier/retoucher une image ?\n• Une discussion générale ?`,
+            timestamp: new Date(),
+            isAnalysis: true
+          };
+        }
+
+      case 'conversation':
+        // Conversation normale (gratuite) via Qwen
+        try {
+          const qwenResponse = await callQwenConversation(userText);
+          return {
+            id: baseId,
+            type: 'ai',
+            text: qwenResponse,
+            timestamp: new Date(),
+            isAnalysis: true // Gratuit
+          };
+        } catch (error) {
+          console.error('Erreur conversation Qwen:', error);
+          return {
+            id: baseId,
+            type: 'ai',
+            text: `Je suis désolé, j'ai eu un problème technique. 😅\n\nPour vous aider au mieux avec vos images immobilières, pourriez-vous m'envoyer une photo ou me dire ce que vous souhaitez améliorer ?`,
+            timestamp: new Date(),
+            isAnalysis: true
+          };
+        }
+
+      default:
+        return {
+          id: baseId,
+          type: 'ai',
+          text: `Je n'ai pas bien compris votre demande. Pouvez-vous me dire ce que vous souhaitez faire avec votre image immobilière ?`,
+          timestamp: new Date(),
+          isAnalysis: true
+        };
+    }
+  };
+
+  // Gestion des erreurs avec retry
+  const handleGenerationError = async (originalIntent: string, userText: string, userImage?: { file: File; preview: string }): Promise<Message> => {
+    if (sessionMemory.retryCount === 0) {
+      // Premier retry gratuit
+      setSessionMemory(prev => ({ ...prev, retryCount: 1 }));
+      
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Simuler parfois un succès au retry
+      if (Math.random() > 0.3) {
+        return generateAIResponse(originalIntent, userText, userImage);
+      }
+    }
+
+    // Échec définitif après retry
+    setSessionMemory(prev => ({ ...prev, retryCount: 0 }));
     
-    // Ajouter le message de l'utilisateur
-    addMessage({
-      type: 'user', 
-      content: customInstruction
-    });
-    
-    // Simuler la réponse de l'IA
-    addMessage({
+    return {
+      id: Date.now() + 1,
       type: 'ai',
-      content: `J'ai bien reçu votre message : "${customInstruction}". Comment puis-je vous aider avec vos images immobilières ?`
-    });
-    
-    setCustomInstruction('');
+      text: `❌ **Retouche échouée**\n\nDésolé, la retouche a échoué deux fois. Cela peut arriver avec certaines images complexes.\n\nVous pouvez réessayer avec une autre demande ou une image différente. Aucun crédit n'a été débité.`,
+      timestamp: new Date(),
+      isAnalysis: true
+    };
   };
 
-  const renderMessage = (message: any) => {
-    const isUser = message.type === 'user';
-    const isImage = message.type === 'image';
+  const handleSendMessage = async () => {
+    if (!inputText.trim() && !selectedImage) return;
 
-    if (isImage) {
-      const isOriginal = message.imageType === 'original';
+    // Message utilisateur
+    const userMessage: Message = {
+      id: Date.now(),
+      type: 'user',
+      text: inputText.trim(),
+      image: selectedImage || undefined,
+      timestamp: new Date()
+    };
+
+    setMessages(prev => [...prev, userMessage]);
+    setInputText('');
+    setSelectedImage(null);
+    setIsLoading(true);
+    
+    // Définir le type de chargement selon la demande
+    if (selectedImage && !inputText.trim()) {
+      setLoadingType('analysis');
+    } else if (inputText.includes('supprime') || inputText.includes('améliore') || inputText.includes('change') || inputText.includes('papier peint')) {
+      setLoadingType('processing');
+    } else {
+      setLoadingType('chat');
+    }
+
+    // Analyser l'intention avec GPT
+    const intent = await analyzeUserIntent(inputText, !!selectedImage);
+    console.log('🔍 [DEBUG] Intent détecté:', intent, 'pour:', inputText);
+    
+    try {
+      // Simuler parfois une erreur pour tester le retry
+      if ((intent === 'edit_request' || intent === 'continuation') && Math.random() < 0.2) {
+        throw new Error('Generation failed');
+      }
+
+      const aiResponse = await generateAIResponse(intent, inputText, selectedImage || undefined);
+      
+      // Décompte des crédits (sauf pour analyse et retry)
+      if (!aiResponse.isAnalysis && !aiResponse.isRetrying && userData) {
+        setUserData(prev => prev ? { ...prev, credits: Math.max(0, prev.credits - 1) } : null);
+      }
+      
+      setMessages(prev => [...prev, aiResponse]);
+      
+      // Mettre à jour l'historique
+      setSessionMemory(prev => ({
+        ...prev,
+        conversationHistory: [...prev.conversationHistory, userMessage, aiResponse]
+      }));
+      
+    } catch (error) {
+      // Gestion d'erreur avec retry
+      const errorResponse = await handleGenerationError(intent, inputText, selectedImage || undefined);
+      setMessages(prev => [...prev, errorResponse]);
+    }
+    
+    setIsLoading(false);
+  };
+
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const handleDownloadImage = (imageUrl: string, fileName: string) => {
+    // Simulation du téléchargement
+    const link = document.createElement('a');
+    link.href = imageUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleLogout = () => {
+    // Cette fonction sera appelée par le Header
+    window.location.href = '/login';
+  };
+
+  // Créer un composant de message personnalisé avec bouton de téléchargement
+  const renderMessage = (message: Message) => {
+    if (message.type === 'ai' && message.generatedImage) {
       return (
-        <div className={`chat-message p-4 rounded-2xl shadow-sm ${
-          isOriginal 
-            ? 'bg-[#0099FF] text-white' // Image utilisateur = bulle bleue
-            : 'bg-white text-gray-800 border border-gray-200' // Image IA = bulle blanche
-        }`}>
-          <div className="flex items-center gap-2 mb-3">
-            <ImageIcon size={16} className={isOriginal ? 'text-white/80' : 'text-gray-500'} />
-            <span className="text-sm font-medium">
-              {isOriginal ? 'Mon image' : 'Image optimisée'}
-            </span>
-          </div>
-          <img
-            src={message.content}
-            alt={isOriginal ? 'Image envoyée' : 'Image optimisée'}
-            className="w-full rounded-lg shadow-md"
-          />
-          
-          {/* Bouton télécharger intégré dans la bulle IA uniquement */}
-          {!isOriginal && (
-            <div className="mt-3 pt-3 border-t border-gray-200">
-              <Button
-                onClick={handleDownload}
-                icon={<Download size={16} />}
-                size="sm"
-                variant="success"
-                className="w-full"
-              >
-                Télécharger
-              </Button>
+        <motion.div
+          key={message.id}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex justify-start"
+        >
+          <div className="max-w-md lg:max-w-2xl">
+            {/* Texte de l'IA */}
+            <div
+              className="rounded-2xl sm:rounded-3xl px-4 sm:px-6 py-3 sm:py-4 shadow-lg mb-3"
+              style={{
+                background: 'rgba(255, 255, 255, 0.2)',
+                border: '1px solid rgba(0, 153, 255, 0.2)',
+                backdropFilter: 'blur(20px)',
+                boxShadow: '0 8px 32px rgba(0, 153, 255, 0.1)'
+              }}
+            >
+              <p className="whitespace-pre-wrap leading-relaxed text-sm sm:text-base text-text-primary">
+                {message.text}
+              </p>
             </div>
-          )}
-          
-          <div className={`text-xs mt-2 ${isOriginal ? 'text-white/70' : 'text-gray-500'}`}>
-            {message.timestamp.toLocaleTimeString()}
+            
+            {/* Image générée avec bouton de téléchargement intégré */}
+            <div className="relative rounded-xl overflow-hidden shadow-lg">
+              <img
+                src={message.generatedImage.url}
+                alt="Image optimisée"
+                className="w-full max-h-80 object-cover"
+              />
+              <div className="absolute bottom-3 right-3">
+                <Button
+                  onClick={() => handleDownloadImage(message.generatedImage!.url, message.generatedImage!.downloadName)}
+                  className="px-3 py-2 rounded-lg shadow-lg border-0"
+                  style={{
+                    background: 'linear-gradient(135deg, #00D38A 0%, #00b377 100%)',
+                    color: 'white'
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Télécharger
+                </Button>
+              </div>
+            </div>
+            
+            {/* Timestamp */}
+            <div className="text-xs text-primary-blue/70 text-left mt-2">
+              {message.timestamp.toLocaleTimeString('fr-FR', { 
+                hour: '2-digit', 
+                minute: '2-digit' 
+              })}
+            </div>
           </div>
-        </div>
+        </motion.div>
       );
     }
-
-    return (
-      <div
-        className={`chat-message p-4 rounded-2xl shadow-sm ${
-          isUser
-            ? 'bg-[#0099FF] text-white'
-            : message.type === 'ai'
-            ? 'bg-white text-gray-800 border border-gray-200'
-            : 'bg-blue-50 text-blue-800 border border-blue-200'
-        }`}
-      >
-        <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
-        <div className={`text-xs mt-2 ${isUser ? 'text-white/70' : 'text-gray-500'}`}>
-          {message.timestamp.toLocaleTimeString()}
-        </div>
-      </div>
-    );
+    
+    return <ChatMessage key={message.id} message={message} />;
   };
 
   return (
-    <div className="h-screen bg-gradient-to-br from-[#F6F9FF] via-[#EAF4FF] to-[#d1e7f0] flex flex-col lock-scroll">
-      {/* Header minimal */}
-      <div className="header-sticky px-4 py-3 flex-shrink-0">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-4">
-              <h1 className="text-xl md:text-2xl font-bold text-gray-800">ImmoPix AI</h1>
-              <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600">
-                <User size={16} />
-                <span>{userData?.email || 'Chargement...'}</span>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-2 md:gap-4">
-              {userData && (
-                <div className="flex items-center gap-2 bg-white/30 backdrop-blur-sm px-3 py-2 rounded-xl border border-white/20">
-                  <CreditCard size={16} className="text-[#0099FF]" />
-                  <span className="text-sm font-medium">{userData.credits} crédits</span>
-                </div>
-              )}
-              <Button
-                onClick={handleReset}
-                variant="outline"
-                size="sm"
-                icon={<RotateCcw size={16} />}
+    <div className="h-screen flex flex-col relative overflow-hidden" style={{ background: 'var(--global-bg)' }}>
+              <Header 
+          logo="https://i.ibb.co/Sw98bpnG/immopixlogodtr-1752093672104.png"
+          userEmail={userData?.email || "Chargement..."}
+          credits={userData?.credits || 0}
+          onLogout={handleLogout}
+        />
+
+      {/* Zone de conversation */}
+      <div className="flex-1 overflow-y-auto px-2 sm:px-4 py-3 sm:py-6 w-full relative z-10">
+        <div className="max-w-4xl mx-auto space-y-4 sm:space-y-6">
+          {messages.map((message) => renderMessage(message))}
+          
+          {isLoading && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex justify-start"
+            >
+              <div 
+                className="px-4 sm:px-6 py-3 sm:py-4 max-w-xs"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: '1px solid rgba(0, 153, 255, 0.3)',
+                  borderRadius: '1.5rem',
+                  backdropFilter: 'blur(20px)',
+                  boxShadow: '0 8px 32px rgba(0, 153, 255, 0.1)'
+                }}
               >
-                <span className="hidden sm:inline">Nouvelle image</span>
-                <span className="sm:hidden">Reset</span>
-              </Button>
-            </div>
-          </div>
+                <div className="flex items-center space-x-3">
+                  <div className="flex space-x-1">
+                    {[0, 0.3, 0.6].map((delay, i) => (
+                      <motion.div
+                        key={i}
+                        className="w-2 h-2 rounded-full bg-primary-blue"
+                        animate={{ opacity: [0.4, 1, 0.4] }}
+                        transition={{ duration: 1.5, repeat: Infinity, delay }}
+                      />
+                    ))}
+                  </div>
+                  <span className="text-xs sm:text-sm text-text-primary font-medium">
+                    {loadingType === 'analysis' ? 'Analyse en cours...' : 
+                     loadingType === 'processing' ? 'Modifications en cours...' : ''}
+                  </span>
+                </div>
+              </div>
+            </motion.div>
+          )}
+          
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
-      {/* Zone de conversation - colonne centrale */}
-      <div className="flex-1 flex flex-col max-w-4xl mx-auto w-full px-4">
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto py-4 space-y-4 conversation-area">
-          {messages.length === 0 ? (
-            <div className="text-center text-gray-500 py-12">
-              <MessageCircle size={64} className="mx-auto mb-6 opacity-30" />
-              <h3 className="text-lg font-medium mb-2">Commencez votre conversation</h3>
-              <p className="text-sm">Tapez un message ou joignez une image pour commencer</p>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                {renderMessage(message)}
-              </div>
-            ))
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Composer en bas */}
-        <div className="flex-shrink-0 chat-composer pt-4 pb-4">
-          <div className="flex gap-3">
-            {/* Input file caché */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleFileUpload(file);
-              }}
-              className="hidden"
-            />
-            
-            {/* Bouton upload */}
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              variant="outline"
-              size="lg"
-              icon={<Upload size={20} />}
-              disabled={isUploading}
-              className="flex-shrink-0"
-            >
-              {isUploading ? <Loader /> : 'Image'}
-            </Button>
-
-            {/* Zone de texte */}
-            <div className="flex-1 flex gap-3">
-              <input
-                type="text"
-                value={customInstruction}
-                onChange={(e) => setCustomInstruction(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    if (uploadedImage) {
-                      handleAnalyzeImage();
-                    } else if (customInstruction.trim()) {
-                      handleSendCustomInstruction();
-                    }
-                  }
+      {/* Zone d'envoi */}
+      <div 
+        className="border-t-0 px-2 sm:px-4 py-3 sm:py-4 relative z-10"
+        style={{
+          background: 'rgba(255, 255, 255, 0.15)',
+          backdropFilter: 'blur(20px)',
+          borderTop: '1px solid rgba(255, 255, 255, 0.25)'
+        }}
+      >
+        <div className="max-w-4xl mx-auto">
+          <ImageUpload
+            selectedImage={selectedImage}
+            onImageSelect={setSelectedImage}
+            onImageRemove={() => setSelectedImage(null)}
+          />
+          
+          <div className="flex items-end space-x-2 sm:space-x-3">
+            <div className="flex-1 min-w-0">
+              <Textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={handleKeyPress}
+                placeholder="Décrivez votre demande... (ex: 'supprime le canapé' ou 'améliore la lumière')"
+                className="min-h-[50px] sm:min-h-[60px] max-h-32 resize-none border-2 border-primary-blue/20 focus:border-primary-blue focus:ring-primary-blue/10 rounded-xl sm:rounded-2xl shadow-lg text-sm sm:text-base"
+                style={{
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  backdropFilter: 'blur(10px)'
                 }}
-                placeholder="Tapez votre message ici..."
-                className="input-glass flex-1 h-12"
-                disabled={isAnalyzing || isProcessing}
+                disabled={isLoading}
               />
-              
-              {/* Bouton envoyer */}
-              <Button
-                onClick={() => {
-                  if (uploadedImage) {
-                    handleAnalyzeImage();
-                  } else if (customInstruction.trim()) {
-                    handleSendCustomInstruction();
-                  }
-                }}
-                disabled={isAnalyzing || isProcessing || (!uploadedImage && !customInstruction.trim())}
-                icon={isAnalyzing || isProcessing ? <Loader /> : <Sparkles size={20} />}
-                size="lg"
-                className="flex-shrink-0"
-              >
-                {isAnalyzing ? 'Analyse...' : isProcessing ? 'Traitement...' : 'Envoyer'}
-              </Button>
             </div>
+            <Button
+              onClick={handleSendMessage}
+              disabled={(!inputText.trim() && !selectedImage) || isLoading || (userData?.credits === 0)}
+              className="px-4 sm:px-6 py-2 sm:py-3 h-auto rounded-xl sm:rounded-2xl shadow-lg border-0 transition-all duration-200 shrink-0"
+              style={{
+                background: isLoading || (userData?.credits === 0)
+                  ? 'rgba(156, 163, 175, 0.5)' 
+                  : 'linear-gradient(135deg, #0099FF 0%, #0088cc 100%)',
+                color: 'white'
+              }}
+            >
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4 sm:w-5 sm:h-5" />
+              )}
+            </Button>
           </div>
           
-          {/* Aperçu de l'image uploadée */}
-          {uploadedImage && (
-            <div className="mt-3 p-3 bg-white/20 rounded-lg flex items-center gap-3">
-              <img
-                src={uploadedImage}
-                alt="Aperçu"
-                className="w-12 h-12 object-cover rounded"
-              />
-              <span className="text-sm text-gray-600 flex-1">Image prête à analyser</span>
-              <button
-                onClick={() => {
-                  setUploadedImage(null);
-                  setCurrentStep('upload');
-                }}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X size={16} />
-              </button>
+          {userData?.credits === 0 && (
+            <div className="mt-2 text-center">
+              <span className="text-xs text-red-500 bg-red-50 px-3 py-1 rounded-full">
+                Plus de crédits disponibles
+              </span>
             </div>
           )}
         </div>
       </div>
     </div>
   );
-} 
+}
