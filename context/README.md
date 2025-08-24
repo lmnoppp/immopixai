@@ -53,10 +53,12 @@ ImmoPix AI est une application web de traitement d'images immobilières utilisan
 ## 🔐 Système d'Authentification
 
 ### Codes d'Accès
-- `IMMO-STARTER-2025` : 40 crédits
-- `IMMO-CONFORT-2025` : 150 crédits  
-- `IMMO-PROMAX-2025` : 300 crédits
-- `IMMOPIXTESTMVP07` : 3 crédits (avec blacklist automatique)
+- `IMMO-STARTER-****` : 40 crédits (plan starter)
+- `IMMO-CONFORT-****` : 150 crédits (plan confort)
+- `IMMO-PROMAX-****` : 300 crédits (plan promax)
+- `IMMO*********07` : 3 crédits (plan test avec blacklist automatique)
+
+> ⚠️ Les codes d'accès réels sont configurés via variables d'environnement pour des raisons de sécurité
 
 ### Fonctionnement
 1. **Connexion** : Email + code d'accès avec validation
@@ -209,3 +211,4 @@ ImmoPix AI est une application web de traitement d'images immobilières utilisan
 - **Suppression du curseur clignotant** : Interface plus propre
 - **Suppression du bouton Accueil** : Interface épurée
 - **Icône de crédits mise à jour** : Pièce au lieu du portefeuille
+chore: test push

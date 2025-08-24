@@ -23,13 +23,22 @@
 ### Variables Requises
 ```env
 # Supabase
-SUPABASE_URL=https://tkioemqyfoqseacryiiu.supabase.co
-SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_URL=https://votre-projet.supabase.co
+SUPABASE_SERVICE_ROLE=sb_secret_votre_service_role_key
+NEXT_PUBLIC_SUPABASE_URL=https://votre-projet.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_votre_anon_key
 
 # APIs Externes
 REPLICATE_API_TOKEN=your_replicate_token
 OPENAI_API_KEY=your_openai_key
+
+# ImageKit
+NEXT_PUBLIC_IMAGEKIT_PUBLIC_KEY=your_public_key
+IMAGEKIT_PRIVATE_KEY=your_private_key
+NEXT_PUBLIC_IMAGEKIT_URL_ENDPOINT=your_url_endpoint
+
+# Codes d'accès (format JSON sécurisé)
+VALID_ACCESS_CODES={"CODE-EXAMPLE-2025":{"plan":"starter","credits":40}}
 
 # Configuration
 NODE_ENV=production

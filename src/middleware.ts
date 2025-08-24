@@ -6,7 +6,7 @@ export const runtime = 'nodejs';
 
 export async function middleware(request: NextRequest) {
   // Routes protégées
-  const protectedRoutes = ['/dashboard', '/api/process-image', '/api/user-data', '/api/logout', '/api/analyze-image', '/api/upload-image'];
+  const protectedRoutes = ['/dashboard', '/api/process-image', '/api/user-data', '/api/logout', '/api/analyze-image', '/api/upload-image', '/api/chat', '/api/qwen-chat'];
   const isProtectedRoute = protectedRoutes.some(route => 
     request.nextUrl.pathname.startsWith(route)
   );
